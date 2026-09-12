@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hf-archive"
+version = "0.1.0"
+description = "Archive Hugging Face repos to Hetzner S3"
+requires-python = ">=3.11"
+dependencies = [
+  "huggingface_hub",
+  "boto3",
+  "PyYAML",
+]
+
+[project.scripts]
+hf-archive = "hf_archive.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hf_archive"]
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+]

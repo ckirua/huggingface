@@ -1,0 +1,21 @@
+# Wishlist for `hf-archive archive-all`.
+#
+# Quant selection is intentional — not a full bartowski multi-quant dump.
+# For these 7B Instruct GGUFs we keep Q4_K_M / Q5_K_M / Q6_K only:
+#   *Q4_K_M*  — good default size/quality
+#   *Q5_K_M*  — higher quality (already used for T10 / office)
+#   *Q6_K.gguf — bartowski has Q6_K (no Q6_K_M); .gguf suffix avoids Q6_K_L
+# Tiny test repo (hf-internal-testing/tiny-random-gpt2) is left out of the
+# wishlist on purpose; it remains in S3 from earlier VERIFY runs.
+
+models:
+  - repo_id: bartowski/Qwen2.5-Coder-7B-Instruct-GGUF
+    allow_patterns:
+      - "*Q4_K_M*"
+      - "*Q5_K_M*"
+      - "*Q6_K.gguf"
+  - repo_id: bartowski/Qwen2.5-7B-Instruct-GGUF
+    allow_patterns:
+      - "*Q4_K_M*"
+      - "*Q5_K_M*"
+      - "*Q6_K.gguf"
