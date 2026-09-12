@@ -1,0 +1,104 @@
+# Wishlist for `hf-archive archive-all`.
+#
+# Target ceiling: RTX 2070 (8GB) → single 3090 → 2x2080 Ti (~22GB) → 2x3090 (~48GB).
+# llama.cpp multi-GPU is layer-split (not a true NVLink pool); archive by total VRAM budget.
+#
+# Quant selection is intentional — not a full bartowski multi-quant dump.
+# Size-class pattern policy:
+#   ≤14B GGUF : *Q4_K_M* / *Q5_K_M* / *Q6_K.gguf  (bartowski Q6_K has no Q6_K_M;
+#                .gguf suffix avoids Q6_K_L)
+#   32B GGUF  : *Q3_K_M* / *Q4_K_M* / *Q5_K_M*
+#   ~70–72B   : *Q3_K_M* / *IQ3_M* / *Q4_K_M*  (tight + usable; Q4 for 2x3090)
+#   Embed     : *Q8_0* / *f16*  (small; keep quality)
+#   Whisper   : full small repo (no pattern filter)
+#
+# Tiny test repo (hf-internal-testing/tiny-random-gpt2) is left out of the
+# wishlist on purpose; it remains in S3 from earlier VERIFY runs.
+# Dual-GPU extras (72B / VL-32B / Llama-3.1-70B) are listed after the core
+# 3090 wishlist so archive-all prefers plan repos first; largest last.
+
+models:
+  # --- existing ≤14B (keep) ---
+  - repo_id: bartowski/Qwen2.5-Coder-7B-Instruct-GGUF
+    allow_patterns:
+      - "*Q4_K_M*"
+      - "*Q5_K_M*"
+      - "*Q6_K.gguf"
+  - repo_id: bartowski/Qwen2.5-7B-Instruct-GGUF
+    allow_patterns:
+      - "*Q4_K_M*"
+      - "*Q5_K_M*"
+      - "*Q6_K.gguf"
+
+  # --- utilities (small) ---
+  - repo_id: nomic-ai/nomic-embed-text-v1.5-GGUF
+    allow_patterns:
+      - "*Q8_0*"
+      - "*f16*"
+  - repo_id: openai/whisper-large-v3
+
+  # --- ≤14B GGUF ---
+  - repo_id: bartowski/Qwen_Qwen2.5-VL-7B-Instruct-GGUF
+    allow_patterns:
+      - "*Q4_K_M*"
+      - "*Q5_K_M*"
+      - "*Q6_K.gguf"
+  - repo_id: bartowski/Meta-Llama-3.1-8B-Instruct-GGUF
+    allow_patterns:
+      - "*Q4_K_M*"
+      - "*Q5_K_M*"
+      - "*Q6_K.gguf"
+  - repo_id: bartowski/Qwen2.5-Coder-14B-Instruct-GGUF
+    allow_patterns:
+      - "*Q4_K_M*"
+      - "*Q5_K_M*"
+      - "*Q6_K.gguf"
+  - repo_id: bartowski/Qwen2.5-14B-Instruct-GGUF
+    allow_patterns:
+      - "*Q4_K_M*"
+      - "*Q5_K_M*"
+      - "*Q6_K.gguf"
+  - repo_id: bartowski/DeepSeek-R1-Distill-Qwen-14B-GGUF
+    allow_patterns:
+      - "*Q4_K_M*"
+      - "*Q5_K_M*"
+      - "*Q6_K.gguf"
+
+  # --- 32B GGUF ---
+  - repo_id: bartowski/Qwen2.5-Coder-32B-Instruct-GGUF
+    allow_patterns:
+      - "*Q3_K_M*"
+      - "*Q4_K_M*"
+      - "*Q5_K_M*"
+  - repo_id: bartowski/Qwen2.5-32B-Instruct-GGUF
+    allow_patterns:
+      - "*Q3_K_M*"
+      - "*Q4_K_M*"
+      - "*Q5_K_M*"
+  - repo_id: bartowski/DeepSeek-R1-Distill-Qwen-32B-GGUF
+    allow_patterns:
+      - "*Q3_K_M*"
+      - "*Q4_K_M*"
+      - "*Q5_K_M*"
+
+  # --- ~70B core (plan) ---
+  - repo_id: bartowski/Llama-3.3-70B-Instruct-GGUF
+    allow_patterns:
+      - "*Q3_K_M*"
+      - "*IQ3_M*"
+      - "*Q4_K_M*"
+
+  # --- dual-GPU / ~48GB extras (after plan core; largest last) ---
+  - repo_id: bartowski/Qwen_Qwen2.5-VL-32B-Instruct-GGUF
+    allow_patterns:
+      - "*Q3_K_M*"
+      - "*Q4_K_M*"
+      - "*Q5_K_M*"
+  - repo_id: bartowski/Meta-Llama-3.1-70B-Instruct-GGUF
+    allow_patterns:
+      - "*Q3_K_M*"
+      - "*Q4_K_M*"
+  - repo_id: bartowski/Qwen2.5-72B-Instruct-GGUF
+    allow_patterns:
+      - "*Q3_K_M*"
+      - "*Q4_K_M*"

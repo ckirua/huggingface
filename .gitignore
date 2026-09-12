@@ -1,0 +1,15 @@
+.cache/
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+*.egg-info/
+huggingface.env
+.env
+*.env
+!.env.example
+!huggingface.env.example
+.python-version
+.pytest_cache/
+.coverage
+htmlcov/
