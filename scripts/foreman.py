@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Local Foreman: drive HF→S3 archive build via local gpt-4o-mini.
+"""Local Foreman: drive HF→S3 archive build via local llama-server.
 
 Reads Progress from ~/loop-hf.md, asks the local OpenAI-compatible API for
 one-file JSON patches, applies them under app/huggingface, runs VERIFY, and
 updates the Progress table. Max 2 repairs per todo on FAIL. Stops before T10.
+
+Default :8080 uses the live GGUF alias (not gpt-4o-mini). Point
+FOREMAN_API_URL at :8090 and FOREMAN_MODEL=gpt-4o-mini to use the Cursor
+catalog on the context router.
 """
 
 from __future__ import annotations
@@ -25,7 +29,29 @@ PLAYBOOK = Path("/home/kirua/loop-hf.md")
 API_URL = os.environ.get(
     "FOREMAN_API_URL", "http://127.0.0.1:8080/v1/chat/completions"
 )
-MODEL = os.environ.get("FOREMAN_MODEL", "gpt-4o-mini")
+
+
+def _resolve_model(api_url: str, configured: str) -> str:
+    """8090 keeps gpt-4o-mini*; 8080 uses the live llama-server --alias."""
+    if ":8090" in api_url:
+        return configured or "gpt-4o-mini"
+    if configured and not configured.startswith("gpt-4o-mini"):
+        return configured
+    base = api_url
+    if base.endswith("/chat/completions"):
+        base = base[: -len("/chat/completions")]
+    try:
+        with urllib.request.urlopen(base + "/models", timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+        mid = (data.get("data") or [{}])[0].get("id") or ""
+        if mid:
+            return str(mid)
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, KeyError, IndexError):
+        pass
+    return configured or "Qwen2.5-Coder-7B-Instruct"
+
+
+MODEL = _resolve_model(API_URL, os.environ.get("FOREMAN_MODEL", ""))
 MAX_REPAIRS = 2
 MAX_TODOS = ("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T11")  # never T10
 

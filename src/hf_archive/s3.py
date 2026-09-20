@@ -1,4 +1,4 @@
-"""S3 helpers for Hetzner Object Storage."""
+"""S3 helpers for Hetzner Object Storage (uploads rate-limited via TransferConfig)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import boto3
+from boto3.s3.transfer import TransferConfig
 from botocore.client import BaseClient
 from botocore.exceptions import ClientError
 
@@ -21,6 +22,17 @@ def client(cfg: Config) -> BaseClient:
         aws_access_key_id=cfg.access_key,
         aws_secret_access_key=cfg.secret_key,
     )
+
+
+def _transfer_config(cfg: Config) -> TransferConfig | None:
+    """Build boto3 TransferConfig with max_bandwidth from Config.max_mbps.
+
+    boto3 expects bytes/sec. None means "use boto3 defaults" (unlimited).
+    """
+    bps = cfg.max_bytes_per_sec
+    if bps is None:
+        return None
+    return TransferConfig(max_bandwidth=bps)
 
 
 def ensure_bucket(cfg: Config) -> None:
@@ -70,13 +82,23 @@ def get_json(cfg: Config, key: str) -> Any | None:
 
 
 def upload_file(cfg: Config, local_path: str | Path, key: str) -> None:
-    client(cfg).upload_file(str(local_path), cfg.bucket, key)
+    """Upload one local file. Respects cfg.max_mbps via TransferConfig.max_bandwidth."""
+    kwargs: dict[str, Any] = {}
+    tcfg = _transfer_config(cfg)
+    if tcfg is not None:
+        kwargs["Config"] = tcfg
+    client(cfg).upload_file(str(local_path), cfg.bucket, key, **kwargs)
 
 
 def download_file(cfg: Config, key: str, local_path: str | Path) -> None:
+    """Download one object. Also paced by max_mbps when set (restore path)."""
     path = Path(local_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    client(cfg).download_file(cfg.bucket, key, str(path))
+    kwargs: dict[str, Any] = {}
+    tcfg = _transfer_config(cfg)
+    if tcfg is not None:
+        kwargs["Config"] = tcfg
+    client(cfg).download_file(cfg.bucket, key, str(path), **kwargs)
 
 
 def list_prefix(cfg: Config, prefix: str) -> list[str]:

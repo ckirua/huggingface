@@ -1,4 +1,13 @@
-"""hf-archive CLI entrypoint."""
+"""hf-archive CLI entrypoint.
+
+--max-mbps wiring (keep this obvious)
+-------------------------------------
+1. ``archive`` and ``archive-all`` accept ``--max-mbps FLOAT``.
+2. After ``load_config()``, call ``cfg.with_max_mbps(args.max_mbps)``.
+   - If the flag was omitted, argparse leaves it as None → env/default kept.
+   - If the flag was passed, it overrides env.
+3. archive_repo / upload_file / download_file read ``cfg.max_mbps``.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +23,20 @@ from hf_archive import verify_restore as vr
 from hf_archive.wishlist import load_wishlist
 
 
+def _add_max_mbps_arg(parser: argparse.ArgumentParser) -> None:
+    """Shared --max-mbps flag for archive commands (MiB/s; 0 = unlimited)."""
+    parser.add_argument(
+        "--max-mbps",
+        type=float,
+        default=None,
+        metavar="MBPS",
+        help=(
+            "Cap HF download + S3 upload bandwidth in MiB/s "
+            "(default: env HF_ARCHIVE_MAX_MBPS, else 8; 0 = unlimited)"
+        ),
+    )
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="hf-archive", description="Archive Hugging Face repos to S3"
@@ -26,6 +49,7 @@ def main(argv: list[str] | None = None) -> None:
     p_arch.add_argument("repo_id")
     p_arch.add_argument("--force", action="store_true")
     p_arch.add_argument("--revision", default=None)
+    _add_max_mbps_arg(p_arch)
 
     p_all = sub.add_parser("archive-all", help="Archive all models.yaml entries")
     p_all.add_argument(
@@ -33,6 +57,8 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Re-archive even if latest revision is already present (e.g. expanded patterns)",
     )
+    _add_max_mbps_arg(p_all)
+
     sub.add_parser("list", help="List catalog")
 
     p_ver = sub.add_parser("verify", help="Verify archived repo")
@@ -55,7 +81,7 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.command == "archive":
-        cfg = load_config()
+        cfg = load_config().with_max_mbps(args.max_mbps)
         result = archive_mod.archive_repo(
             cfg, args.repo_id, force=args.force, revision=args.revision
         )
@@ -63,7 +89,7 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.command == "archive-all":
-        cfg = load_config()
+        cfg = load_config().with_max_mbps(args.max_mbps)
         wishlist_path = PROJECT_ROOT / "models.yaml"
         items = load_wishlist(wishlist_path)
         summary = {"ok": 0, "skip": 0, "fail": 0, "results": []}
@@ -84,12 +110,12 @@ def main(argv: list[str] | None = None) -> None:
                 else:
                     summary["ok"] += 1
                 summary["results"].append(result)
-                print(json.dumps(result))
+                print(json.dumps(result), flush=True)
             except Exception as e:
                 summary["fail"] += 1
                 err = {"repo_id": rid, "status": "fail", "error": str(e)}
                 summary["results"].append(err)
-                print(json.dumps(err), file=sys.stderr)
+                print(json.dumps(err), file=sys.stderr, flush=True)
         print(
             json.dumps(
                 {
@@ -97,7 +123,8 @@ def main(argv: list[str] | None = None) -> None:
                     "skip": summary["skip"],
                     "fail": summary["fail"],
                 }
-            )
+            ),
+            flush=True,
         )
         if summary["fail"]:
             sys.exit(1)

@@ -58,3 +58,34 @@ def test_cache_dir_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("HF_ARCHIVE_CACHE", raising=False)
     cfg = load_config()
     assert cfg.cache_dir == config_mod.PROJECT_ROOT / ".cache"
+
+
+def test_max_mbps_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required(monkeypatch)
+    monkeypatch.delenv("HF_ARCHIVE_MAX_MBPS", raising=False)
+    cfg = load_config()
+    assert cfg.max_mbps == config_mod.DEFAULT_MAX_MBPS
+    assert cfg.max_bytes_per_sec == config_mod.DEFAULT_MAX_MBPS * 1024 * 1024
+
+
+def test_max_mbps_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required(monkeypatch)
+    monkeypatch.setenv("HF_ARCHIVE_MAX_MBPS", "4")
+    cfg = load_config()
+    assert cfg.max_mbps == 4.0
+
+
+def test_with_max_mbps_cli_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required(monkeypatch)
+    monkeypatch.setenv("HF_ARCHIVE_MAX_MBPS", "4")
+    cfg = load_config().with_max_mbps(2.5)
+    assert cfg.max_mbps == 2.5
+    # None keeps existing value (flag omitted).
+    assert load_config().with_max_mbps(None).max_mbps == 4.0
+
+
+def test_max_mbps_zero_disables(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required(monkeypatch)
+    monkeypatch.setenv("HF_ARCHIVE_MAX_MBPS", "0")
+    cfg = load_config()
+    assert cfg.max_bytes_per_sec is None

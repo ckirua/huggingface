@@ -7,9 +7,12 @@ dist/
 huggingface.env
 .env
 *.env
-!.env.example
-!huggingface.env.example
 .python-version
 .pytest_cache/
 .coverage
 htmlcov/
+MISSING.md
+logs/
+scripts/archive-*.py
+scripts/__pycache__/
+scripts/prompts/

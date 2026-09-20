@@ -1,104 +1,659 @@
 # Wishlist for `hf-archive archive-all`.
 #
-# Target ceiling: RTX 2070 (8GB) → single 3090 → 2x2080 Ti (~22GB) → 2x3090 (~48GB).
-# llama.cpp multi-GPU is layer-split (not a true NVLink pool); archive by total VRAM budget.
+# Target ceiling: RTX 2070 (8GB) → single 3090 (24GB) → 2x3090 (~48GB).
+# llama.cpp multi-GPU is layer-split (not a true NVLink pool); archive by
+# total VRAM budget. 2x3090 is the MAX desired level — every considered-good
+# official instruct GGUF that can load usefully in this range is listed.
+# Not GGUF-only: 3090-fit image/Gemlite (diffusers/HQQ) sidecars are in-scope
+# when they beat llama.cpp for that stack. Skip unpacked BF16, MLX, Spaces,
+# and widely mirrored parents (e.g. FLUX.2-klein-4B).
 #
-# Quant selection is intentional — not a full bartowski multi-quant dump.
+# archive-all walks this file in order. Wave 0 is the already-started seed
+# list (keep first). New waves are cheaper/smaller first so overnight
+# sessions make progress; largest new 70–80B-class dumps are last.
+#
+# Quant selection is intentional — NOT a full bartowski multi-quant dump.
+# YAML anchors (q14 / q32 / q70 / qembed / vl14 / vl32 / vl70 / gemma27 /
+# vl_gemma27 / q70tight / scout) keep patterns DRY. PyYAML safe_load
+# resolves aliases; load_wishlist only reads the `models:` list.
+#
 # Size-class pattern policy:
-#   ≤14B GGUF : *Q4_K_M* / *Q5_K_M* / *Q6_K.gguf  (bartowski Q6_K has no Q6_K_M;
-#                .gguf suffix avoids Q6_K_L)
-#   32B GGUF  : *Q3_K_M* / *Q4_K_M* / *Q5_K_M*
-#   ~70–72B   : *Q3_K_M* / *IQ3_M* / *Q4_K_M*  (tight + usable; Q4 for 2x3090)
-#   Embed     : *Q8_0* / *f16*  (small; keep quality)
-#   Whisper   : full small repo (no pattern filter)
+#   ≤14B GGUF     : Q4_K_M / Q5_K_M / Q6_K.gguf  (bartowski Q6_K has no
+#                    Q6_K_M; .gguf suffix avoids Q6_K_L)
+#   ~24–35B / MoE ~30B-total-A3B : Q3_K_M / Q4_K_M / Q5_K_M
+#   ~70–80B dense or 80B-class MoE : Q3_K_M / IQ3_M / Q4_K_M
+#   Gemma 27B/31B : Q4_K_M / Q5_K_M only (Q6 too tight on 24GB)
+#   Embed         : Q8_0 / f16  (or official GGUF quants in repo if small)
+#   Whisper / tiny utility / image-Gemlite sidecar : full small repo if
+#                    not a multi-quant dump (no allow_patterns)
+#   VL repos      : ALWAYS also *mmproj* (projectors)
 #
-# Tiny test repo (hf-internal-testing/tiny-random-gpt2) is left out of the
-# wishlist on purpose; it remains in S3 from earlier VERIFY runs.
-# Dual-GPU extras (72B / VL-32B / Llama-3.1-70B) are listed after the core
-# 3090 wishlist so archive-all prefers plan repos first; largest last.
+# SKIP (too big for 2x3090 even at Q3/IQ3, or not usefully loadable):
+#   - Kimi-K2 ~1T
+#   - DeepSeek-V3 / R1 671B
+#   - Qwen3-Coder-480B-A35B
+#   - Qwen3-235B-A22B
+#   - Qwen3.5-122B / 397B
+#   - gpt-oss-120b
+#   - Mistral-Large-675B / Mistral-Small-4-119B / Devstral-2-123B
+#   - Llama 4 Maverick
+#   - GLM-4.5 / 4.6 / 4.7 full dense/MoE (not Flash)
+#   - GLM-4.5-Air : Q3_K_M ~51.7GB / Q4 ~68GB — over 48GB even at Q3
+#   - Qwen3.8-Flash-Next : Q3_K_M ~85.6GB / Q4 ~111GB — skip
+#   - Command-A 111B
+#   - c4ai-command-r-plus-08-2024 (~104B; Q3 ~47.5GB leaves no KV room)
+#   - Mixtral-8x22B if Q4 >48GB
+# Also skipped: abliterated / heretic / Fallen / RP / NSFW finetunes;
+# EXL2 repos; dual unsloth dumps when a bartowski GGUF already exists.
+#
+# Tiny test repo (hf-internal-testing/tiny-random-gpt2) is left out on
+# purpose; it remains in S3 from earlier VERIFY runs.
+
+# --- pattern sets (anchors; not consumed as wishlist entries) ---
+q14: &q14
+  - "*Q4_K_M*"
+  - "*Q5_K_M*"
+  - "*Q6_K.gguf"
+
+q32: &q32
+  - "*Q3_K_M*"
+  - "*Q4_K_M*"
+  - "*Q5_K_M*"
+
+q70: &q70
+  - "*Q3_K_M*"
+  - "*IQ3_M*"
+  - "*Q4_K_M*"
+
+q70tight: &q70tight
+  - "*Q3_K_M*"
+  - "*Q4_K_M*"
+
+qembed: &qembed
+  - "*Q8_0*"
+  - "*f16*"
+
+vl14: &vl14
+  - "*Q4_K_M*"
+  - "*Q5_K_M*"
+  - "*Q6_K.gguf"
+  - "*mmproj*"
+
+vl32: &vl32
+  - "*Q3_K_M*"
+  - "*Q4_K_M*"
+  - "*Q5_K_M*"
+  - "*mmproj*"
+
+vl70: &vl70
+  - "*Q3_K_M*"
+  - "*IQ3_M*"
+  - "*Q4_K_M*"
+  - "*mmproj*"
+
+gemma27: &gemma27
+  - "*Q4_K_M*"
+  - "*Q5_K_M*"
+
+vl_gemma27: &vl_gemma27
+  - "*Q4_K_M*"
+  - "*Q5_K_M*"
+  - "*mmproj*"
+
+scout: &scout
+  - "*Q3_K_M*"
+  - "*IQ3_M*"
+
+# prism-ml Bonsai: Q1_0 is upstream llama.cpp; PQ2_0 needs the
+# PrismML-Eng fork; *g64* is the mainline-compatible ternary pack.
+# Never match F16 / legacy Q2_0 / dspark-bf16.
+bonsai1: &bonsai1
+  - "*Q1_0*"
+
+vl_bonsai1: &vl_bonsai1
+  - "*Q1_0*"
+  - "*mmproj*"
+
+bonsai_t: &bonsai_t
+  - "*PQ2_0*"
+  - "*g64*"
+
+vl_bonsai_t: &vl_bonsai_t
+  - "*PQ2_0*"
+  - "*g64*"
+  - "*mmproj*"
 
 models:
-  # --- existing ≤14B (keep) ---
+
+
+  # === WAVE 0 — existing seed (already-started; keep first) ===
   - repo_id: bartowski/Qwen2.5-Coder-7B-Instruct-GGUF
-    allow_patterns:
-      - "*Q4_K_M*"
-      - "*Q5_K_M*"
-      - "*Q6_K.gguf"
+    allow_patterns: *q14
   - repo_id: bartowski/Qwen2.5-7B-Instruct-GGUF
-    allow_patterns:
-      - "*Q4_K_M*"
-      - "*Q5_K_M*"
-      - "*Q6_K.gguf"
-
-  # --- utilities (small) ---
+    allow_patterns: *q14
   - repo_id: nomic-ai/nomic-embed-text-v1.5-GGUF
-    allow_patterns:
-      - "*Q8_0*"
-      - "*f16*"
+    allow_patterns: *qembed
+  # full small ASR repo (safetensors; no GGUF filter)
   - repo_id: openai/whisper-large-v3
-
-  # --- ≤14B GGUF ---
+  # VL: added mmproj
   - repo_id: bartowski/Qwen_Qwen2.5-VL-7B-Instruct-GGUF
-    allow_patterns:
-      - "*Q4_K_M*"
-      - "*Q5_K_M*"
-      - "*Q6_K.gguf"
+    allow_patterns: *vl14
   - repo_id: bartowski/Meta-Llama-3.1-8B-Instruct-GGUF
-    allow_patterns:
-      - "*Q4_K_M*"
-      - "*Q5_K_M*"
-      - "*Q6_K.gguf"
+    allow_patterns: *q14
   - repo_id: bartowski/Qwen2.5-Coder-14B-Instruct-GGUF
-    allow_patterns:
-      - "*Q4_K_M*"
-      - "*Q5_K_M*"
-      - "*Q6_K.gguf"
+    allow_patterns: *q14
   - repo_id: bartowski/Qwen2.5-14B-Instruct-GGUF
-    allow_patterns:
-      - "*Q4_K_M*"
-      - "*Q5_K_M*"
-      - "*Q6_K.gguf"
+    allow_patterns: *q14
   - repo_id: bartowski/DeepSeek-R1-Distill-Qwen-14B-GGUF
-    allow_patterns:
-      - "*Q4_K_M*"
-      - "*Q5_K_M*"
-      - "*Q6_K.gguf"
-
-  # --- 32B GGUF ---
+    allow_patterns: *q14
   - repo_id: bartowski/Qwen2.5-Coder-32B-Instruct-GGUF
-    allow_patterns:
-      - "*Q3_K_M*"
-      - "*Q4_K_M*"
-      - "*Q5_K_M*"
+    allow_patterns: *q32
   - repo_id: bartowski/Qwen2.5-32B-Instruct-GGUF
-    allow_patterns:
-      - "*Q3_K_M*"
-      - "*Q4_K_M*"
-      - "*Q5_K_M*"
+    allow_patterns: *q32
   - repo_id: bartowski/DeepSeek-R1-Distill-Qwen-32B-GGUF
-    allow_patterns:
-      - "*Q3_K_M*"
-      - "*Q4_K_M*"
-      - "*Q5_K_M*"
-
-  # --- ~70B core (plan) ---
+    allow_patterns: *q32
   - repo_id: bartowski/Llama-3.3-70B-Instruct-GGUF
-    allow_patterns:
-      - "*Q3_K_M*"
-      - "*IQ3_M*"
-      - "*Q4_K_M*"
-
-  # --- dual-GPU / ~48GB extras (after plan core; largest last) ---
+    allow_patterns: *q70
+  # VL: added mmproj
   - repo_id: bartowski/Qwen_Qwen2.5-VL-32B-Instruct-GGUF
-    allow_patterns:
-      - "*Q3_K_M*"
-      - "*Q4_K_M*"
-      - "*Q5_K_M*"
+    allow_patterns: *vl32
+  # existing pattern kept (no IQ3_M)
   - repo_id: bartowski/Meta-Llama-3.1-70B-Instruct-GGUF
-    allow_patterns:
-      - "*Q3_K_M*"
-      - "*Q4_K_M*"
+    allow_patterns: *q70tight
+  # existing pattern kept (no IQ3_M)
   - repo_id: bartowski/Qwen2.5-72B-Instruct-GGUF
+    allow_patterns: *q70tight
+  - repo_id: bartowski/Qwen_QwQ-32B-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/Mistral-Small-24B-Instruct-2501-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/glm-4-9b-chat-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF
+    allow_patterns: *q14
+  # gated license; Q4/Q5 only
+  - repo_id: bartowski/gemma-2-27b-it-GGUF
+    allow_patterns: *gemma27
+
+  # === WAVE 1 — embed / rerank / 2070 toys (cheap, finish first overnight) ===
+  # official Qwen GGUF
+  - repo_id: Qwen/Qwen3-Embedding-0.6B-GGUF
+    allow_patterns: *qembed
+  - repo_id: Qwen/Qwen3-Embedding-4B-GGUF
+    allow_patterns: *qembed
+  - repo_id: Qwen/Qwen3-Embedding-8B-GGUF
+    allow_patterns: *qembed
+  # official nomic (prefer over bartowski fork)
+  - repo_id: nomic-ai/nomic-embed-text-v2-moe-GGUF
+    allow_patterns: *qembed
+  - repo_id: nomic-ai/nomic-embed-code-GGUF
+    allow_patterns: *qembed
+  - repo_id: bartowski/granite-embedding-30m-english-GGUF
+    allow_patterns: *qembed
+  - repo_id: bartowski/granite-embedding-107m-multilingual-GGUF
+    allow_patterns: *qembed
+  - repo_id: bartowski/granite-embedding-125m-english-GGUF
+    allow_patterns: *qembed
+  - repo_id: bartowski/granite-embedding-278m-multilingual-GGUF
+    allow_patterns: *qembed
+  # only official-ish Qwen3-Reranker GGUF (llama.cpp org, single Q8_0);
+  # Qwen/*-GGUF and bartowski IDs 401
+  - repo_id: ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF
+  # no official/bartowski GGUF; QuantFactory is the verified multi-quant dump
+  - repo_id: QuantFactory/Qwen3-Reranker-4B-GGUF
+    allow_patterns: *q14
+  # same as 4B — bartowski/Qwen GGUF missing
+  - repo_id: QuantFactory/Qwen3-Reranker-8B-GGUF
+    allow_patterns: *q14
+  # 2070 toy
+  - repo_id: bartowski/google_gemma-3-270m-it-GGUF
+    allow_patterns: *q14
+  # 2070 toy; official HF GGUF 401
+  - repo_id: bartowski/HuggingFaceTB_SmolLM3-3B-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/SmolLM2-1.7B-Instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Qwen2.5-0.5B-Instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Qwen2.5-1.5B-Instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Qwen2.5-3B-Instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Qwen2.5-Coder-0.5B-Instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Qwen2.5-Coder-3B-Instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Qwen2.5-Math-1.5B-Instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Llama-3.2-1B-Instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Llama-3.2-3B-Instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/tencent_Hunyuan-0.5B-Instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/tencent_Hunyuan-1.8B-Instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/MiniCPM5-2B-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/EXAONE-3.5-2.4B-Instruct-GGUF
+    allow_patterns: *q14
+  # prism-ml official 1-bit / ternary (Apache-2.0). Q1_0 upstream;
+  # PQ2_0 fork / *g64* mainline. Skip F16. 1.7B–8B fit a 2070.
+  - repo_id: prism-ml/Bonsai-1.7B-gguf
+    allow_patterns: *bonsai1
+  - repo_id: prism-ml/Bonsai-4B-gguf
+    allow_patterns: *bonsai1
+  - repo_id: prism-ml/Bonsai-8B-gguf
+    allow_patterns: *bonsai1
+  - repo_id: prism-ml/Ternary-Bonsai-1.7B-gguf
+    allow_patterns: *bonsai_t
+  - repo_id: prism-ml/Ternary-Bonsai-4B-gguf
+    allow_patterns: *bonsai_t
+  - repo_id: prism-ml/Ternary-Bonsai-8B-gguf
+    allow_patterns: *bonsai_t
+  # Image/Gemlite sidecar (not llama.cpp). NVIDIA/CUDA packs for a 3090
+  # server: Gemlite + HQQ text encoder + VAE. Official Apache-2.0.
+  # Full small repos (not multi-quant dumps) — no allow_patterns, like
+  # whisper. Skip unpacked BF16 (~15 GiB), MLX (Apple), Spaces, and
+  # parent black-forest-labs/FLUX.2-klein-4B (widely mirrored, 22 GiB).
+  - repo_id: prism-ml/bonsai-image-ternary-4B-gemlite-2bit
+  - repo_id: prism-ml/bonsai-image-binary-4B-gemlite-1bit
+  # Qwen-Image-2.1 (2026-09-20): unified T2I + edit Diffusers stack for
+  # 3090 / 2x3090 — 7B single-stream DiT + Qwen3-VL text encoder + RGBA
+  # VAE (~44 GiB Hub usedStorage). PE-* are ~9B prompt rewriters shipped
+  # with the release. Full repos (no allow_patterns). License: Qwen
+  # Research (non-commercial); personal backup only.
+  - repo_id: Qwen/Qwen-Image-2.1
+  - repo_id: Qwen/Qwen-Image-2.1-PE-T2I
+  - repo_id: Qwen/Qwen-Image-2.1-PE-I2I
+
+  # === WAVE 2 — 4–14B fill-ins (single 3090 / 2070-offload) ===
+  - repo_id: bartowski/Qwen2.5-Math-7B-Instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Qwen2.5-7B-Instruct-1M-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Qwen2.5-14B-Instruct-1M-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/DeepSeek-R1-Distill-Llama-8B-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/gemma-2-2b-it-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/gemma-2-9b-it-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/ibm-granite_granite-3.3-2b-instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/ibm-granite_granite-3.3-8b-instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/ibm-granite_granite-4.0-micro-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/ibm-granite_granite-4.0-h-micro-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/ibm-granite_granite-4.0-h-tiny-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/ibm-granite_granite-4.1-3b-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/ibm-granite_granite-4.1-8b-GGUF
+    allow_patterns: *q14
+  # bartowski/ibm-granite_granite-4.2-* 401; this id exists
+  - repo_id: bartowski/granite-4.2-3b-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/granite-4.2-8b-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Phi-3.5-mini-instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/microsoft_Phi-4-mini-instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/microsoft_Phi-4-mini-reasoning-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/phi-4-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/microsoft_Phi-4-reasoning-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/microsoft_Phi-4-reasoning-plus-GGUF
+    allow_patterns: *q14
+  # 14B-class; 128k over 4k
+  - repo_id: bartowski/Phi-3-medium-128k-instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Ministral-8B-Instruct-2410-GGUF
+    allow_patterns: *q14
+  # 12B official; strong 3090 daily
+  - repo_id: bartowski/Mistral-Nemo-Instruct-2407-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/c4ai-command-r7b-12-2024-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/tencent_Hunyuan-4B-Instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/tencent_Hunyuan-7B-Instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/aya-expanse-8b-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/EXAONE-3.5-7.8B-Instruct-GGUF
+    allow_patterns: *q14
+  # allenai_ prefix 401
+  - repo_id: bartowski/OLMo-2-1124-7B-Instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/OLMo-2-1124-13B-Instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/allenai_Olmo-3-7B-Instruct-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/allenai_Olmo-3-7B-Think-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/THUDM_GLM-4-9B-0414-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/glm-4-9b-chat-1m-GGUF
+    allow_patterns: *q14
+
+  # === WAVE 3 — Qwen3 dense ≤14B + R1-0528 ===
+  - repo_id: bartowski/Qwen_Qwen3-0.6B-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Qwen_Qwen3-1.7B-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Qwen_Qwen3-4B-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Qwen_Qwen3-4B-Thinking-2507-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Qwen_Qwen3-8B-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/Qwen_Qwen3-14B-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/deepseek-ai_DeepSeek-R1-0528-Qwen3-8B-GGUF
+    allow_patterns: *q14
+
+  # === WAVE 4 — Qwen3.5 ≤9B (native VL — mmproj) ===
+  - repo_id: bartowski/Qwen_Qwen3.5-0.8B-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/Qwen_Qwen3.5-2B-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/Qwen_Qwen3.5-4B-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/Qwen_Qwen3.5-9B-GGUF
+    allow_patterns: *vl14
+
+  # === WAVE 5 — Gemma 3 / 3n / 4 small (VL mmproj where present) ===
+  # no mmproj in this dump
+  - repo_id: bartowski/google_gemma-3-1b-it-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/google_gemma-3-4b-it-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/google_gemma-3-4b-it-qat-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/google_gemma-3-12b-it-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/google_gemma-3-12b-it-qat-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/google_gemma-3n-E2B-it-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/google_gemma-3n-E4B-it-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/google_gemma-4-E2B-it-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/google_gemma-4-E4B-it-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/gemma-4-12B-it-GGUF
+    allow_patterns: *vl14
+
+  # === WAVE 6 — Ministral-3 Instruct + Reasoning (VL mmproj) ===
+  - repo_id: bartowski/mistralai_Ministral-3-3B-Instruct-2512-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/mistralai_Ministral-3-3B-Reasoning-2512-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/mistralai_Ministral-3-8B-Instruct-2512-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/mistralai_Ministral-3-8B-Reasoning-2512-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/mistralai_Ministral-3-14B-Instruct-2512-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/mistralai_Ministral-3-14B-Reasoning-2512-GGUF
+    allow_patterns: *vl14
+
+  # === WAVE 7 — Qwen3-VL ≤8B + Qwen2.5-VL-3B fill-in ===
+  - repo_id: bartowski/Qwen_Qwen3-VL-2B-Instruct-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/Qwen_Qwen3-VL-2B-Thinking-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/Qwen_Qwen3-VL-4B-Instruct-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/Qwen_Qwen3-VL-4B-Thinking-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/Qwen_Qwen3-VL-8B-Instruct-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/Qwen_Qwen3-VL-8B-Thinking-GGUF
+    allow_patterns: *vl14
+  # bartowski Qwen2.5-VL-3B GGUF 401; unsloth dump exists + mmproj
+  - repo_id: unsloth/Qwen2.5-VL-3B-Instruct-GGUF
+    allow_patterns: *vl14
+
+  # === WAVE 8 — InternVL3.5 + MiniCPM VL (≤14B) ===
+  - repo_id: bartowski/OpenGVLab_InternVL3_5-1B-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/OpenGVLab_InternVL3_5-2B-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/OpenGVLab_InternVL3_5-4B-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/OpenGVLab_InternVL3_5-8B-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/OpenGVLab_InternVL3_5-14B-GGUF
+    allow_patterns: *vl14
+  # openbmb_ prefix 401
+  - repo_id: bartowski/MiniCPM-V-2_6-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/MiniCPM-o-2_6-GGUF
+    allow_patterns: *vl14
+
+  # === WAVE 9 — NVIDIA Nano/Cascade/Reasoning + leftover ≤14B ===
+  - repo_id: bartowski/nvidia_NVIDIA-Nemotron-Nano-9B-v2-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/nvidia_NVIDIA-Nemotron-Nano-12B-v2-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/nvidia_Nemotron-Cascade-8B-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/nvidia_Nemotron-Cascade-8B-Thinking-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/nvidia_Nemotron-Cascade-14B-Thinking-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/nvidia_OpenReasoning-Nemotron-7B-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/nvidia_OpenReasoning-Nemotron-14B-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/nvidia_OpenCodeReasoning-Nemotron-7B-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/nvidia_OpenCodeReasoning-Nemotron-14B-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/nvidia_AceReason-Nemotron-7B-GGUF
+    allow_patterns: *q14
+  - repo_id: bartowski/nvidia_AceReason-Nemotron-14B-GGUF
+    allow_patterns: *q14
+
+  # === WAVE 10 — ~20–35B + MoE ~30B-A3B (2x3090 comfortable) ===
+  # skip gpt-oss-120b; bartowski only (unsloth is a second dump)
+  - repo_id: bartowski/openai_gpt-oss-20b-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/Codestral-22B-v0.1-GGUF
+    allow_patterns: *q32
+  # VL mmproj
+  - repo_id: bartowski/mistralai_Mistral-Small-3.1-24B-Instruct-2503-GGUF
+    allow_patterns: *vl32
+  # VL mmproj
+  - repo_id: bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF
+    allow_patterns: *vl32
+  - repo_id: bartowski/mistralai_Devstral-Small-2505-GGUF
+    allow_patterns: *vl32
+  - repo_id: bartowski/mistralai_Devstral-Small-2507-GGUF
+    allow_patterns: *vl32
+  # skip Devstral-2-123B
+  - repo_id: bartowski/mistralai_Devstral-Small-2-24B-Instruct-2512-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/mistralai_Magistral-Small-2506-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/mistralai_Magistral-Small-2507-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/mistralai_Magistral-Small-2509-GGUF
+    allow_patterns: *q32
+  # audio projector via mmproj
+  - repo_id: bartowski/mistralai_Voxtral-Mini-3B-2507-GGUF
+    allow_patterns: *vl14
+  - repo_id: bartowski/mistralai_Voxtral-Small-24B-2507-GGUF
+    allow_patterns: *vl32
+  # MoE ~30B total / 3B active — treat as 24–32B
+  - repo_id: bartowski/Qwen_Qwen3-30B-A3B-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/Qwen_Qwen3-30B-A3B-Instruct-2507-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/Qwen_Qwen3-30B-A3B-Thinking-2507-GGUF
+    allow_patterns: *q32
+  # bartowski Qwen_Qwen3-Coder-30B-A3B-Instruct-GGUF 401; unsloth is the live dump
+  - repo_id: unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF
+    allow_patterns: *q32
+  # 1M-context sibling
+  - repo_id: unsloth/Qwen3-Coder-30B-A3B-Instruct-1M-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/Qwen_Qwen3-VL-30B-A3B-Instruct-GGUF
+    allow_patterns: *vl32
+  - repo_id: bartowski/Qwen_Qwen3-VL-30B-A3B-Thinking-GGUF
+    allow_patterns: *vl32
+  # native VL
+  - repo_id: bartowski/Qwen_Qwen3.5-35B-A3B-GGUF
+    allow_patterns: *vl32
+  # native VL
+  - repo_id: bartowski/Qwen_Qwen3.6-35B-A3B-GGUF
+    allow_patterns: *vl32
+  - repo_id: bartowski/nvidia_Nemotron-3-Nano-30B-A3B-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/nvidia_Nemotron-Cascade-2-30B-A3B-GGUF
+    allow_patterns: *q32
+  # nvidia_NVIDIA-Nemotron-3.5-Lightning-* 401; this id exists
+  - repo_id: bartowski/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/ibm-granite_granite-4.0-h-small-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/ibm-granite_granite-4.1-30b-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/granite-4.2-30b-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/baidu_ERNIE-4.5-21B-A3B-PT-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/baidu_ERNIE-4.5-21B-A3B-Thinking-GGUF
+    allow_patterns: *q32
+  # small VL MoE; Q4 ~5.7GB + mmproj
+  - repo_id: bartowski/zai-org_GLM-4.6V-Flash-GGUF
+    allow_patterns: *vl14
+  # Q4 ~17GB; skip full GLM-4.7
+  - repo_id: bartowski/zai-org_GLM-4.7-Flash-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/OpenGVLab_InternVL3_5-30B-A3B-GGUF
+    allow_patterns: *vl32
+  # MoE ~26B-A4B
+  - repo_id: bartowski/google_gemma-4-26B-A4B-it-GGUF
+    allow_patterns: *vl32
+  # 35B; skip Command-A 111B and command-r-plus
+  - repo_id: bartowski/c4ai-command-r-08-2024-GGUF
+    allow_patterns: *q32
+  # 2025–26 official; Q4 ~20GB
+  - repo_id: bartowski/ByteDance-Seed_Seed-OSS-36B-Instruct-GGUF
+    allow_patterns: *q32
+
+  # === WAVE 11 — 27–38B dense + Qwen3-VL-32B ===
+  - repo_id: bartowski/Qwen_Qwen3-32B-GGUF
+    allow_patterns: *q32
+  # native VL
+  - repo_id: bartowski/Qwen_Qwen3.5-27B-GGUF
+    allow_patterns: *vl32
+  # native VL
+  - repo_id: bartowski/Qwen_Qwen3.6-27B-GGUF
+    allow_patterns: *vl32
+  # Qwen_Qwen3.8-27B-GGUF 401; this short id exists + mmproj
+  - repo_id: bartowski/Qwen3.8-27B-GGUF
+    allow_patterns: *vl32
+  # Ternary Qwen3.8-27B (Bonsai-2, 2026-09-16). Official prism-ml.
+  # PrismML-Eng/llama.cpp fork required — stock llama.cpp rejects
+  # PTQ1_0/PQ2_0; Q2_0-dev loads then gibberish (no Hadamard).
+  # CUDA/Metal/CPU in the fork (not WebGPU-only). Skip F16 ~50 GiB.
+  # PTQ1_0 ~5.54 GiB / PQ2_0 ~6.71 GiB + mmproj (q32/vl* miss these).
+  - repo_id: prism-ml/Ternary-Bonsai-2-27B-gguf
     allow_patterns:
-      - "*Q3_K_M*"
-      - "*Q4_K_M*"
+      - "*PTQ1_0*"
+      - "*PQ2_0*"
+      - "*mmproj*"
+  # 1-bit Qwen3.6-27B; Q1_0 is upstream llama.cpp. No Bonsai-2 1-bit yet.
+  # Skip F16 ~50 GiB and dspark-bf16. Q1_0 ~3.54 GiB + mmproj.
+  - repo_id: prism-ml/Bonsai-27B-gguf
+    allow_patterns: *vl_bonsai1
+  # v1 ternary Qwen3.6-27B (2026-07). Q2_g64 runs on stock llama.cpp;
+  # PQ2_0 needs PrismML fork. Skip F16 ~50 GiB, legacy Q2_0, dspark-bf16.
+  - repo_id: prism-ml/Ternary-Bonsai-27B-gguf
+    allow_patterns: *vl_bonsai_t
+  - repo_id: bartowski/google_gemma-3-27b-it-GGUF
+    allow_patterns: *vl_gemma27
+  - repo_id: bartowski/google_gemma-3-27b-it-qat-GGUF
+    allow_patterns: *vl_gemma27
+  # Q4/Q5 only like Gemma 27B/31B
+  - repo_id: bartowski/google_gemma-4-31B-it-GGUF
+    allow_patterns: *vl_gemma27
+  - repo_id: bartowski/THUDM_GLM-4-32B-0414-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/Qwen_Qwen3-VL-32B-Instruct-GGUF
+    allow_patterns: *vl32
+  - repo_id: bartowski/Qwen_Qwen3-VL-32B-Thinking-GGUF
+    allow_patterns: *vl32
+  # Q4 ~22GB — include; skip InternVL 70B+
+  - repo_id: bartowski/OpenGVLab_InternVL3_5-38B-GGUF
+    allow_patterns: *vl32
+  - repo_id: bartowski/aya-expanse-32b-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/LGAI-EXAONE_EXAONE-4.0-32B-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/LGAI-EXAONE_EXAONE-4.0.1-32B-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/EXAONE-3.5-32B-Instruct-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/allenai_Olmo-3.1-32B-Instruct-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/allenai_Olmo-3.1-32B-Think-GGUF
+    allow_patterns: *q32
+  # only verified OLMo-2-32B GGUF
+  - repo_id: unsloth/OLMo-2-0325-32B-Instruct-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/nvidia_OpenReasoning-Nemotron-32B-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/nvidia_OpenCodeReasoning-Nemotron-32B-GGUF
+    allow_patterns: *q32
+
+  # === WAVE 12 — 49B + new 70–80B-class LAST (overnight tail) ===
+  # 49B Q4 ~28GB / Q5 ~33GB — fits 2x3090
+  - repo_id: bartowski/nvidia_Llama-3_3-Nemotron-Super-49B-v1-GGUF
+    allow_patterns: *q32
+  - repo_id: bartowski/nvidia_Llama-3_3-Nemotron-Super-49B-v1_5-GGUF
+    allow_patterns: *q32
+  # Q3 ~34GB / Q4 ~45GB — fits 2x3090; skip unsloth duplicate
+  - repo_id: bartowski/Qwen_Qwen3-Next-80B-A3B-Instruct-GGUF
+    allow_patterns: *q70
+  - repo_id: bartowski/Qwen_Qwen3-Next-80B-A3B-Thinking-GGUF
+    allow_patterns: *q70
+  # same weight class as Next-80B (Q3 ~34 / Q4 ~45); fits 2x3090
+  - repo_id: bartowski/Qwen_Qwen3-Coder-Next-GGUF
+    allow_patterns: *q70
+  - repo_id: bartowski/DeepSeek-R1-Distill-Llama-70B-GGUF
+    allow_patterns: *q70
+  - repo_id: bartowski/Llama-3.1-Nemotron-70B-Instruct-HF-GGUF
+    allow_patterns: *q70
+  # 72B Q4 fits 2x3090
+  - repo_id: bartowski/Qwen2.5-Math-72B-Instruct-GGUF
+    allow_patterns: *q70
+  # 70B-class VL + mmproj
+  - repo_id: bartowski/Qwen_Qwen2.5-VL-72B-Instruct-GGUF
+    allow_patterns: *vl70
+  # MoE ~80B-class weights; Q3 ~35 / Q4 ~46 — fits 2x3090
+  - repo_id: bartowski/tencent_Hunyuan-A13B-Instruct-GGUF
+    allow_patterns: *q70
+  # bartowski non-old Scout 401; -old is IQ3/Q3 only (Q4 ~63GB).
+  # unsloth is the current conversion (keep both — -old may be stale).
+  - repo_id: bartowski/meta-llama_Llama-4-Scout-17B-16E-Instruct-old-GGUF
+    allow_patterns: *scout
+  - repo_id: unsloth/Llama-4-Scout-17B-16E-Instruct-GGUF
+    allow_patterns: *scout
