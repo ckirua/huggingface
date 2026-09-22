@@ -57,6 +57,26 @@ uv run hf-archive verify <owner/name>
 uv run hf-archive restore <owner/name> [--out DIR]
 ```
 
+## Storage usage snapshots
+
+Measure Hetzner S3 + local disk (no secrets in output). Writes under `snapshots/`.
+
+```bash
+cd /home/kirua/app/huggingface
+
+# All buckets (can take a long time — millions of objects)
+uv run python scripts/measure_storage.py
+
+# Fast: only huggingface-models + disk
+uv run python scripts/measure_storage.py --bucket huggingface-models
+
+# Skip S3 or disk
+uv run python scripts/measure_storage.py --skip-s3
+uv run python scripts/measure_storage.py --bucket huggingface-models --skip-disk
+```
+
+Notes: systemd stub DNS on this host sometimes fails for `*.your-objectstorage.com`; the script falls back to UDP DNS against `1.1.1.1`. Per-repo breakdown defaults to `huggingface-models` (`--detail-bucket`). Snapshot JSON/Markdown under `snapshots/` is gitignored (local only).
+
 Wishlist for `archive-all` is `models.yaml` (`models:` list of `repo_id`, optional `revision` / `allow_patterns` / `ignore_patterns`). Prefer `archive-all` so YAML patterns apply (`archive` alone does not read the wishlist). Use `--force` after expanding `allow_patterns` for a revision already in S3.
 
 ## S3 layout

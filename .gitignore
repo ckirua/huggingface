@@ -13,6 +13,7 @@ huggingface.env
 htmlcov/
 MISSING.md
 logs/
+snapshots/
 scripts/archive-*.py
 scripts/__pycache__/
 scripts/prompts/
